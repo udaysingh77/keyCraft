@@ -8,75 +8,33 @@ import { validate, loginSchema, registerSchema } from '../lib/validation';
 const USERS_KEY = 'keycraft_users';
 const API_URL = 'http://localhost:3001/api';
 
-function initDatabase() {
-  const users = db.get<any[]>(USERS_KEY, []);
-  if (!users.find(u => u.email === 'admin@keycraft.com')) {
-    db.set(USERS_KEY, [
-      ...users,
-      {
-        id: 'admin-1',
-        name: 'Admin User',
-        email: 'admin@keycraft.com',
-        password: 'hashed_admin123',
-        role: UserRole.ADMIN
-      }
-    ]);
-  }
-}
-
-initDatabase();
-
 const hashPassword = (password: string) => `hashed_${password}`;
-
-const generateToken = (user: any) => {
-  const payload = {
-    id: user.id,
-    email: user.email,
-    role: user.role,
-    iat: Date.now(),
-    exp: Date.now() + 3600000 
-  };
-  return `eyJhGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.${btoa(JSON.stringify(payload))}.${config.jwtSecret}`;
-};
 
 export const login = async (email: string, password: string): Promise<User> => {
   return apiHandler(async () => {
     validate(loginSchema, { email, password });
     
     try {
-        // 1. Try Real Backend
         const res = await fetch(`${API_URL}/auth/login`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ email, password })
         });
-        if (!res.ok) throw new Error('Auth failed or backend down');
+        if (!res.ok) {
+            const err = await res.json();
+            throw new Error(err.error || 'Login failed');
+        }
         return await res.json();
-    } catch (e) {
-        // 2. Fallback to Mock
+    } catch (e: any) {
+        console.warn('Backend Login Failed, trying local:', e.message);
+        // Fallback for demo purposes if server isn't running
         await db.delay(config.apiDelay);
-        
         const users = db.get<any[]>(USERS_KEY, []);
         const user = users.find(u => u.email === email);
-
-        if (!user) {
-        throw new AppError('Invalid email or password', 401);
+        if (!user || user.password !== hashPassword(password)) {
+             throw new AppError('Invalid email or password', 401);
         }
-
-        const hashedPassword = hashPassword(password);
-        if (user.password !== hashedPassword) {
-        throw new AppError('Invalid email or password', 401);
-        }
-
-        const token = generateToken(user);
-
-        return {
-        id: user.id,
-        name: user.name,
-        email: user.email,
-        role: user.role,
-        token
-        };
+        return { ...user, token: "local_token" };
     }
   });
 };
@@ -84,32 +42,31 @@ export const login = async (email: string, password: string): Promise<User> => {
 export const register = async (name: string, email: string, password: string): Promise<User> => {
   return apiHandler(async () => {
     validate(registerSchema, { name, email, password });
-    await db.delay(1000);
     
-    const users = db.get<any[]>(USERS_KEY, []);
-    
-    if (users.find(u => u.email === email)) {
-      throw new AppError('User already exists with this email', 409);
+    try {
+        const res = await fetch(`${API_URL}/auth/register`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name, email, password })
+        });
+        if (!res.ok) {
+             const err = await res.json();
+             throw new Error(err.error || 'Registration failed');
+        }
+        return await res.json();
+    } catch (e: any) {
+        console.warn('Backend Register Failed, trying local:', e.message);
+        // Fallback
+        await db.delay(1000);
+        const users = db.get<any[]>(USERS_KEY, []);
+        if (users.find(u => u.email === email)) throw new AppError('User already exists', 409);
+        
+        const newUser = {
+            id: `user-${Math.random().toString(36).substr(2, 9)}`,
+            name, email, password: hashPassword(password), role: UserRole.CUSTOMER
+        };
+        db.set(USERS_KEY, [...users, newUser]);
+        return { ...newUser, token: "local_token" };
     }
-
-    const newUser = {
-      id: `user-${Math.random().toString(36).substr(2, 9)}`,
-      name,
-      email,
-      password: hashPassword(password),
-      role: UserRole.CUSTOMER
-    };
-
-    db.set(USERS_KEY, [...users, newUser]);
-
-    const token = generateToken(newUser);
-
-    return {
-      id: newUser.id,
-      name: newUser.name,
-      email: newUser.email,
-      role: newUser.role,
-      token
-    };
   });
 };
