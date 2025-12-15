@@ -1,5 +1,5 @@
 import React from 'react';
-import { ShoppingCart } from 'lucide-react';
+import { ShoppingCart, Layers } from 'lucide-react';
 import { Product } from '../../types';
 import { useCart } from '../../context/CartContext';
 
@@ -9,6 +9,7 @@ interface ProductCardProps {
 
 export const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
   const { addToCart } = useCart();
+  const imageCount = product.images?.length || 0;
 
   return (
     <div className={`group relative bg-white border border-gray-200 rounded-lg flex flex-col overflow-hidden hover:shadow-lg transition-shadow duration-300 ${!product.isActive ? 'opacity-60 grayscale' : ''}`}>
@@ -18,6 +19,14 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
           alt={product.name}
           className="w-full h-full object-center object-cover sm:w-full sm:h-full"
         />
+        {/* Multiple Images Indicator */}
+        {imageCount > 1 && (
+            <div className="absolute top-2 right-2 bg-black bg-opacity-50 text-white text-xs px-2 py-1 rounded-md flex items-center backdrop-blur-sm">
+                <Layers className="w-3 h-3 mr-1" />
+                {imageCount}
+            </div>
+        )}
+        
         {!product.isActive && (
             <div className="absolute inset-0 flex items-center justify-center bg-black bg-opacity-10">
                 <span className="bg-gray-800 text-white px-3 py-1 rounded-full text-sm font-bold">Inactive</span>

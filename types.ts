@@ -27,12 +27,44 @@ export interface CartItem extends Product {
   quantity: number;
 }
 
+// Database Schema for Cart
+export interface CartItemSchema {
+  productId: string;
+  quantity: number;
+  price: number;
+}
+
+export interface CartSchema {
+  userId: string;
+  items: CartItemSchema[];
+}
+
+export interface Address {
+  fullName: string;
+  street: string;
+  city: string;
+  state: string;
+  zipCode: string;
+  country: string;
+}
+
+export interface OrderItem {
+  productId: string;
+  quantity: number;
+  price: number;
+  name: string; // Snapshot for display
+  image: string; // Snapshot for display
+}
+
 export interface Order {
   id: string;
   userId: string;
-  items: CartItem[];
+  items: OrderItem[];
   totalAmount: number;
-  status: 'pending' | 'completed' | 'failed';
+  paymentStatus: 'pending' | 'completed' | 'failed';
+  orderStatus: 'processing' | 'shipped' | 'delivered' | 'cancelled';
+  paymentId: string;
+  address: Address;
   createdAt: string;
 }
 

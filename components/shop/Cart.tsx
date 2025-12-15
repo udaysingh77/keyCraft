@@ -1,7 +1,18 @@
 import React, { useState } from 'react';
-import { X, Plus, Minus, Trash2, CreditCard } from 'lucide-react';
+import { X, Plus, Minus, Trash2, CreditCard, Lock } from 'lucide-react';
 import { useCart } from '../../context/CartContext';
 import { useAuth } from '../../context/AuthContext';
+import { createPendingOrder, finalizeOrder } from '../../services/orderService';
+import { createPaymentOrder } from '../../services/paymentService';
+import { Address } from '../../types';
+import { config } from '../../lib/config';
+
+// Add type definition for Razorpay on window
+declare global {
+  interface Window {
+    Razorpay: any;
+  }
+}
 
 export const Cart: React.FC = () => {
   const { isCartOpen, setIsCartOpen, items, updateQuantity, removeFromCart, cartTotal, clearCart } = useCart();
@@ -17,13 +28,85 @@ export const Cart: React.FC = () => {
     }
     
     setIsCheckingOut(true);
-    // Simulate Razorpay processing
-    setTimeout(() => {
+    try {
+      // 1. Prepare Order Data & Mock Address
+      const mockAddress: Address = {
+        fullName: user.name,
+        street: '123 Maker Lane',
+        city: 'Craft City',
+        state: 'CA',
+        zipCode: '90210',
+        country: 'USA'
+      };
+
+      // 2. Create Pending Order in Backend
+      // Note: Backend will recalculate total, but we pass it for validation if needed
+      const pendingOrder = await createPendingOrder(
+        user.id,
+        items,
+        cartTotal,
+        mockAddress
+      );
+
+      // 3. Create Payment Order in Backend (Razorpay)
+      const rzpOrder = await createPaymentOrder(cartTotal, 'USD');
+
+      // 4. Open Razorpay Checkout
+      const options = {
+        key: config.razorpayKeyId,
+        amount: rzpOrder.amount,
+        currency: rzpOrder.currency,
+        name: "KeyCraft Store",
+        description: `Order #${pendingOrder.id}`,
+        image: "https://via.placeholder.com/150",
+        order_id: rzpOrder.id, // This is the Razorpay Order ID
+        handler: async function (response: any) {
+          try {
+            // 5. Verify Payment & Finalize Order in Backend
+            const finalizedOrder = await finalizeOrder(pendingOrder.id, {
+                razorpayOrderId: response.razorpay_order_id,
+                razorpayPaymentId: response.razorpay_payment_id,
+                razorpaySignature: response.razorpay_signature
+            });
+
+            // 6. Success UI
+            clearCart();
+            setIsCartOpen(false);
+            alert(`Payment Successful!\nOrder ID: ${finalizedOrder.id}\nRef: ${finalizedOrder.paymentId}`);
+          } catch (err: any) {
+             console.error("Payment Verification Failed", err);
+             alert("Payment verification failed. Please contact support.");
+          } finally {
+            setIsCheckingOut(false);
+          }
+        },
+        prefill: {
+          name: user.name,
+          email: user.email,
+          contact: "9999999999"
+        },
+        theme: {
+          color: "#4F46E5"
+        },
+        modal: {
+            ondismiss: function() {
+                setIsCheckingOut(false);
+            }
+        }
+      };
+
+      const rzp = new window.Razorpay(options);
+      rzp.on('payment.failed', function (response: any){
+        alert("Payment Failed: " + response.error.description);
+        setIsCheckingOut(false);
+      });
+      rzp.open();
+      
+    } catch (error: any) {
+      console.error("Checkout failed", error);
+      alert(`Checkout Failed: ${error.message}`);
       setIsCheckingOut(false);
-      alert("Payment Successful! Order #ORD-" + Math.floor(Math.random() * 10000));
-      clearCart();
-      setIsCartOpen(false);
-    }, 2000);
+    }
   };
 
   return (
@@ -119,18 +202,24 @@ export const Cart: React.FC = () => {
                   <p>${cartTotal.toFixed(2)}</p>
                 </div>
                 <p className="mt-0.5 text-sm text-gray-500">Shipping and taxes calculated at checkout.</p>
-                <div className="mt-6">
+                
+                <div className="mt-4 flex items-center justify-center text-xs text-gray-500 bg-gray-50 p-2 rounded">
+                    <Lock className="w-3 h-3 mr-1" />
+                    Secure Payment via Razorpay
+                </div>
+
+                <div className="mt-4">
                   <button
                     onClick={handleCheckout}
                     disabled={isCheckingOut}
                     className={`w-full flex justify-center items-center px-6 py-3 border border-transparent rounded-md shadow-sm text-base font-medium text-white bg-indigo-600 hover:bg-indigo-700 ${isCheckingOut ? 'opacity-75 cursor-wait' : ''}`}
                   >
                     {isCheckingOut ? (
-                      'Processing...'
+                      'Processing Payment...'
                     ) : (
                       <>
                         <CreditCard className="w-5 h-5 mr-2" />
-                        Checkout
+                        Pay Now
                       </>
                     )}
                   </button>
