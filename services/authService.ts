@@ -6,6 +6,7 @@ import { apiHandler } from '../lib/apiHandler';
 import { validate, loginSchema, registerSchema } from '../lib/validation';
 
 const USERS_KEY = 'keycraft_users';
+const API_URL = 'http://localhost:3001/api';
 
 function initDatabase() {
   const users = db.get<any[]>(USERS_KEY, []);
@@ -35,36 +36,48 @@ const generateToken = (user: any) => {
     iat: Date.now(),
     exp: Date.now() + 3600000 
   };
-  // Simulate JWT signing with secret from config
   return `eyJhGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.${btoa(JSON.stringify(payload))}.${config.jwtSecret}`;
 };
 
 export const login = async (email: string, password: string): Promise<User> => {
   return apiHandler(async () => {
     validate(loginSchema, { email, password });
-    await db.delay(config.apiDelay);
     
-    const users = db.get<any[]>(USERS_KEY, []);
-    const user = users.find(u => u.email === email);
+    try {
+        // 1. Try Real Backend
+        const res = await fetch(`${API_URL}/auth/login`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ email, password })
+        });
+        if (!res.ok) throw new Error('Auth failed or backend down');
+        return await res.json();
+    } catch (e) {
+        // 2. Fallback to Mock
+        await db.delay(config.apiDelay);
+        
+        const users = db.get<any[]>(USERS_KEY, []);
+        const user = users.find(u => u.email === email);
 
-    if (!user) {
-      throw new AppError('Invalid email or password', 401);
+        if (!user) {
+        throw new AppError('Invalid email or password', 401);
+        }
+
+        const hashedPassword = hashPassword(password);
+        if (user.password !== hashedPassword) {
+        throw new AppError('Invalid email or password', 401);
+        }
+
+        const token = generateToken(user);
+
+        return {
+        id: user.id,
+        name: user.name,
+        email: user.email,
+        role: user.role,
+        token
+        };
     }
-
-    const hashedPassword = hashPassword(password);
-    if (user.password !== hashedPassword) {
-      throw new AppError('Invalid email or password', 401);
-    }
-
-    const token = generateToken(user);
-
-    return {
-      id: user.id,
-      name: user.name,
-      email: user.email,
-      role: user.role,
-      token
-    };
   });
 };
 
